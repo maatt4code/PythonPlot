@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
+import matplotlib.animation as animation
 
 
 class Side(Enum):
@@ -12,96 +13,105 @@ class Side(Enum):
 
 class PriceLadder:
     min_increment = 0.00001
-    base_half_spread = 2 * min_increment # 0.00001485622
-    min_half_spread = min_increment
-    skew_factor = 0.25 * min_increment
+    base_half_spread = 100 * min_increment # 0.00001485622, #+ 1.0000025490630
+    min_half_spread = base_half_spread * 0.5
+    skew_factor = 30 * min_increment
 
-    def calc(x, pos: float):
+    def calc(x, half_spread, pos: float):
         def px(side: Side) -> float:
-            y =   0.00000000038 * x**6 \
-                - 0.00000001183 * x**5 \
-                + 0.00000014338 * x**4 \
-                - 0.00000065763 * x**3 \
-                + 0.00000067839 * x**2 \
-                + 0.00000042125 * x \
+            y = - 0.0000000000001 * x**8 \
+                + 0.0000000000175 * x**7 \
+                - 0.0000000008594 * x**6 \
+                + 0.0000000223001 * x**5 \
+                - 0.0000003291554 * x**4 \
+                + 0.0000027520073 * x**3 \
+                - 0.0000118604919 * x**2 \
+                + 0.0000216921451 * x    \
                 + PriceLadder.base_half_spread
             if side == Side.BID:
                 y *= -1.0
             # skew
-            if pos > 0:
-                # Long, so need to sell => decrease bid and ask
-                y -= pos * PriceLadder.skew_factor
-            elif pos < 0:
-                # Short, so need to buy => increase bid and ask
-                y += pos * PriceLadder.skew_factor
+            y -= pos * PriceLadder.skew_factor
             return y
 
         # get raw skewed prices based on position
         bid, ask = px(Side.BID), px(Side.ASK)
         # TODO - redistribute skew s.t. you prices do not cross mid
         if ask < PriceLadder.min_half_spread:
-            diff = PriceLadder.min_half_spread - ask
+            diff = min(abs(PriceLadder.min_half_spread - ask), half_spread) - PriceLadder.min_half_spread
             ask = PriceLadder.min_half_spread
             bid = bid - diff
-        if bid > -1.0 * PriceLadder.min_half_spread:
+        if bid > - PriceLadder.min_half_spread:
+            diff = min(abs(bid - PriceLadder.min_half_spread), half_spread) + PriceLadder.min_half_spread
             diff = bid - PriceLadder.min_half_spread
-            bid = PriceLadder.min_half_spread
+            bid = - PriceLadder.min_half_spread
             ask = ask + diff
         return bid, ask
 
     def __init__(self):
-        buckets = (10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000, 50_000_000, 100_000_000, 200_000_000, 500_000_000, 1_000_000_000)
-        self.position = 0
+        buckets = (1, 2, 3, 4, 5, 6, 7.75, 10, 13, 17, 21.5, 27)
+        self.fig, self.ax = plt.subplots()
+        self.frames = []
         # create df with zeros
-        feature_list = ["id", "bucket", "bid_px", "ask_px"]
+        feature_list = ["bucket", "half_spread", "bid_px", "ask_px"]
         self.df = pd.DataFrame(0, index=np.arange(len(buckets)), columns=feature_list)
-        self.df["id"] = np.arange(len(buckets))
         self.df["bucket"] = buckets
         self.calc_ladder(0)
+        self.df["half_spread"] = (self.df["ask_px"] - self.df["bid_px"]) / 2.0
         pass
 
     def calc_ladder(self, pos: float) -> None:
-        self.df["bid_px"], self.df["ask_px"] = zip(*self.df["id"].apply(lambda x: PriceLadder.calc(x, pos)))
+        self.df["bid_px"], self.df["ask_px"] = zip(*self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
+        print(self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
 
     def set_position(self, pos: float):
         self.calc_ladder(pos)
         pass
 
-    def plot(self, xticks_col):
+    def plot(self):
         print(self.df)
 
-        # clear plot
-        plt.clf()
-
         # plot the lines
-        x = self.df[xticks_col]
-        plt.plot(x, self.df["ask_px"], color='r', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
-        plt.plot(x, self.df["bid_px"], color='b', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
+        x = self.df["bucket"]
+        #ask = self.ax.plot(x, self.df["ask_px"], color='r', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
+        #bid = self.ax.plot(x, self.df["bid_px"], color='b', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
+        pix =  self.ax.plot(x, self.df["ask_px"], 'r', x, self.df["bid_px"], 'b', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
 
         # shift x-axis to middle. clean other axis
-        ax = plt.gca()
-        ax.spines['bottom'].set_position('zero')
-        ax.spines['right'].set_color('none')
-        ax.spines['top'].set_color('none')
+        self.ax.spines['bottom'].set_position('zero')
+        self.ax.spines['right'].set_color('none')
+        self.ax.spines['top'].set_color('none')
 
         # Remove ticks, add labels
-        plt.xticks([]), ax.set_xlabel(xticks_col, loc='right')
+        self.ax.xaxis.set_ticks([]), self.ax.set_xlabel("bucket", loc='right')
         # plt.yticks([]), ax.set_ylabel('Price', loc='top')
-        plt.yticks([]), ax.set_ylabel('Mid', loc='center')
+        self.ax.yaxis.set_ticks([]), self.ax.set_ylabel('Mid', loc='center')
 
+        self.frames.append(pix)
+        self.fig.tight_layout()
         # plot / save
-        plt.show()
-        plt.clf()
+        #plt.show()
 
 
 def main():
     print("Hello")
     ladder = PriceLadder()
-    ladder.plot("id")
-    ladder.plot("bucket")
+    ladder.plot()
     for pos in range(1, 50, 5):
         ladder.set_position(pos)
-        ladder.plot("bucket")
+        ladder.plot()
+    for pos in range(50, 1, -5):
+        ladder.set_position(pos)
+        ladder.plot()
+    for pos in range(-1, -50, -5):
+        ladder.set_position(pos)
+        ladder.plot()
+    for pos in range(-50, -1, 5):
+        ladder.set_position(pos)
+        ladder.plot()
+    anim = animation.ArtistAnimation(fig=ladder.fig, artists=ladder.frames, interval=400)
+    anim.save(filename="pillow_example.gif", writer="pillow")
+    #plt.show()
 
 
 if __name__ == "__main__":
