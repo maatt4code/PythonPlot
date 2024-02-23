@@ -56,26 +56,28 @@ class PriceLadder:
         feature_list = ["bucket", "half_spread", "bid_px", "ask_px"]
         self.df = pd.DataFrame(0, index=np.arange(len(buckets)), columns=feature_list)
         self.df["bucket"] = buckets
-        self.calc_ladder(0)
+        self._calc_ladder(0)
         self.df["half_spread"] = (self.df["ask_px"] - self.df["bid_px"]) / 2.0
         pass
 
-    def calc_ladder(self, pos: float) -> None:
+    def set_position(self, pos: float):
+        self._calc_ladder(pos)
+        self._add_plot()
+        pass
+
+    def _calc_ladder(self, pos: float) -> None:
         self.df["bid_px"], self.df["ask_px"] = zip(*self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
         print(self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
 
-    def set_position(self, pos: float):
-        self.calc_ladder(pos)
-        pass
-
-    def plot(self):
+    def _add_plot(self):
         print(self.df)
 
-        # plot the lines
+        # plot the lines in the same plot so we can save it for animation
         x = self.df["bucket"]
-        #ask = self.ax.plot(x, self.df["ask_px"], color='r', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
-        #bid = self.ax.plot(x, self.df["bid_px"], color='b', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
-        pix =  self.ax.plot(x, self.df["ask_px"], 'r', x, self.df["bid_px"], 'b', linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
+        pix =  self.ax.plot(
+            x, self.df["ask_px"], 'r',
+            x, self.df["bid_px"], 'b',
+            linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
 
         # shift x-axis to middle. clean other axis
         self.ax.spines['bottom'].set_position('zero')
@@ -89,27 +91,20 @@ class PriceLadder:
 
         self.frames.append(pix)
         self.fig.tight_layout()
-        # plot / save
-        #plt.show()
 
 
 def main():
     print("Hello")
     ladder = PriceLadder()
-    ladder.plot()
     for pos in range(1, 50, 5):
         ladder.set_position(pos)
-        ladder.plot()
     for pos in range(50, 1, -5):
         ladder.set_position(pos)
-        ladder.plot()
     for pos in range(-1, -50, -5):
         ladder.set_position(pos)
-        ladder.plot()
     for pos in range(-50, -1, 5):
         ladder.set_position(pos)
-        ladder.plot()
-    anim = animation.ArtistAnimation(fig=ladder.fig, artists=ladder.frames, interval=400)
+    anim = animation.ArtistAnimation(fig=ladder.fig, artists=ladder.frames, interval=200)
     anim.save(filename="pillow_example.gif", writer="pillow")
     #plt.show()
 
