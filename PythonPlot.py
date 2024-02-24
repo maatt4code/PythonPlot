@@ -11,12 +11,16 @@ class Side(Enum):
     ASK = 2
 
 
-class PriceLadder:
+class Pricer:
+    buckets = (1, 2, 3, 4, 5, 6, 7.75, 10, 13, 17, 21.5, 27)
     min_increment = 0.00001
-    base_half_spread = 3 * min_increment
+    min_half_spread = 3 * min_increment
     skew_factor = 1 * min_increment
 
-    def calc(x, half_spread, pos: float):
+    def __init__(self) -> None:
+        pass
+
+    def calc(self, x, half_spread, pos: float):
         def px(side: Side) -> float:
             MID = 0.0
             def px_1() -> float:
@@ -31,14 +35,14 @@ class PriceLadder:
             y = px_2()
             # apply spread
             if side == Side.ASK:
-                y += PriceLadder.base_half_spread
+                y += Pricer.min_half_spread
             else:
                 y *= -1.0
-                y -= PriceLadder.base_half_spread
+                y -= Pricer.min_half_spread
             # shift to mid
             y += MID
             # apply skew
-            y -= pos * PriceLadder.skew_factor
+            y -= pos * Pricer.skew_factor
             return y
 
         # get raw skewed prices based on position
@@ -47,26 +51,48 @@ class PriceLadder:
         # redistribute skew s.t.:
         # - you prices do not cross mid; and
         # - the spread for that bucket is maintained
-        if ask < PriceLadder.base_half_spread:
-            ask = PriceLadder.base_half_spread
-            bid = - 2* half_spread + PriceLadder.base_half_spread
-        if bid > - PriceLadder.base_half_spread:
-            bid = - PriceLadder.base_half_spread
-            ask = + 2* half_spread - PriceLadder.base_half_spread
+        if ask < Pricer.min_half_spread:
+            ask = Pricer.min_half_spread
+            bid = - 2* half_spread + Pricer.min_half_spread
+        if bid > - Pricer.min_half_spread:
+            bid = - Pricer.min_half_spread
+            ask = + 2* half_spread - Pricer.min_half_spread
         return bid, ask
 
+
+class PriceLadder:
+
     def __init__(self):
-        buckets = (1, 2, 3, 4, 5, 6, 7.75, 10, 13, 17, 21.5, 27)
+        self.pricer = Pricer()
         self.fig, self.ax = plt.subplots()
         self.frames = []
         self._init_plot()
         # create df with zeros
-        feature_list = ["bucket", "half_spread", "bid_px", "ask_px"]
-        self.df = pd.DataFrame(0, index=np.arange(len(buckets)), columns=feature_list)
-        self.df["bucket"] = buckets
+        feature_list = ["Bucket", "half_spread", "bid_px", "ask_px"]
+        self.df = pd.DataFrame(0, index=np.arange(len(self.pricer.buckets)), columns=feature_list)
+        self.df["Bucket"] = self.pricer.buckets
         self._calc_ladder(0)
         self.df["half_spread"] = (self.df["ask_px"] - self.df["bid_px"]) / 2.0
         pass
+
+    def set_position(self, pos: float):
+        self._calc_ladder(pos)
+        self._add_plot()
+        pass
+
+    def plot_baseline(self):
+        # make plot with zero position
+        self._calc_ladder(0)
+        # add legends
+        x, y1, y2 = self.df["Bucket"].iloc[5], self.df["bid_px"].iloc[5], self.df["ask_px"].iloc[5]
+        print(y1)
+        # head_width=0.05, head_length=0.03, linewidth=1,
+        dy = y2-y1
+        self.ax.arrow(x=x, y=y1, dx=0, dy=dy, color='k', head_width=1.5 * dy, head_length=0.5 * dy, linewidth=4, length_includes_head=True)
+        # self.ax.annotate(text='Hello', xytext=(x + 1, 0))
+        pix = self._plot_impl()
+        # save
+        plt.show()
 
     def _init_plot(self):
         # shift x-axis to middle. clean other axis
@@ -75,7 +101,7 @@ class PriceLadder:
         self.ax.spines['top'].set_color('none')
 
         # Remove ticks, add labels
-        self.ax.xaxis.set_ticks([]), self.ax.set_xlabel("bucket", loc='right')
+        self.ax.xaxis.set_ticks([]), self.ax.set_xlabel("Bucket", loc='right')
         # plt.yticks([]), ax.set_ylabel('Price', loc='top')
         self.ax.yaxis.set_ticks([]), self.ax.set_ylabel('Mid', loc='center')
 
@@ -84,32 +110,29 @@ class PriceLadder:
         self.fig.set_size_inches(12.0, 8.5, forward=True)
         self.fig.set_dpi(120)
 
-    def set_position(self, pos: float):
-        self._calc_ladder(pos)
-        self._add_plot()
-        pass
-
     def _calc_ladder(self, pos: float) -> None:
-        self.df["bid_px"], self.df["ask_px"] = zip(*self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
+        self.df["bid_px"], self.df["ask_px"] = zip(*self.df.apply(lambda x: self.pricer.calc(x["Bucket"], x["half_spread"], pos), axis=1))
         # TODO - check ladder integrity
 
-    def _add_plot(self):
-        #print(self.df)
-
+    def _plot_impl(self):
         # plot the lines in the same plot so we can save it for animation
         linewidth = 8
-        x = self.df["bucket"]
+        x = self.df["Bucket"]
         pix = self.ax.plot(
             x, self.df["ask_px"], 'r',
             x, self.df["bid_px"], 'b',
             linewidth=linewidth, path_effects=[pe.Stroke(linewidth=linewidth+2, foreground='k'), pe.Normal()])
+        return pix
 
+    def _add_plot(self):
+        pix = self._plot_impl()
         self.frames.append(pix)
 
 
 def main():
     print("Hello")
     ladder = PriceLadder()
+    ladder.plot_baseline()
     for theta in range(0, 20, 1):
         theta /= 10.0
         theta *= np.pi
