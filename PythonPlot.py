@@ -14,8 +14,7 @@ class Side(Enum):
 class PriceLadder:
     min_increment = 0.00001
     base_half_spread = 100 * min_increment # 0.00001485622, #+ 1.0000025490630
-    min_half_spread = base_half_spread * 0.5
-    skew_factor = 30 * min_increment
+    skew_factor = 10 * min_increment
 
     def calc(x, half_spread, pos: float):
         def px(side: Side) -> float:
@@ -37,21 +36,28 @@ class PriceLadder:
         # get raw skewed prices based on position
         bid, ask = px(Side.BID), px(Side.ASK)
         # TODO - redistribute skew s.t. you prices do not cross mid
-        if ask < PriceLadder.min_half_spread:
-            diff = min(abs(PriceLadder.min_half_spread - ask), half_spread) - PriceLadder.min_half_spread
-            ask = PriceLadder.min_half_spread
-            bid = bid - diff
-        if bid > - PriceLadder.min_half_spread:
-            diff = min(abs(bid - PriceLadder.min_half_spread), half_spread) + PriceLadder.min_half_spread
-            diff = bid - PriceLadder.min_half_spread
-            bid = - PriceLadder.min_half_spread
-            ask = ask + diff
+        if ask < PriceLadder.base_half_spread:
+            diff = min(abs(PriceLadder.base_half_spread - ask), half_spread) - PriceLadder.base_half_spread
+            ask = PriceLadder.base_half_spread
+            bid = max(bid - diff - 2 * PriceLadder.base_half_spread, - 2 * (half_spread + PriceLadder.base_half_spread))
+        if bid > - PriceLadder.base_half_spread:
+            diff = min(abs(PriceLadder.base_half_spread -bid), half_spread) + PriceLadder.base_half_spread
+            bid = - PriceLadder.base_half_spread
+            ask = min(ask + diff + 2 * PriceLadder.base_half_spread, 2 * (half_spread + PriceLadder.base_half_spread))
+        # maintain minimum spread
+        if abs(ask - bid) < 2.0 * PriceLadder.base_half_spread:
+            diff = 2.0 * PriceLadder.base_half_spread - abs(ask - bid)
+            if pos < 0:
+                bid -= diff
+            else:
+                ask += diff
         return bid, ask
 
     def __init__(self):
         buckets = (1, 2, 3, 4, 5, 6, 7.75, 10, 13, 17, 21.5, 27)
         self.fig, self.ax = plt.subplots()
         self.frames = []
+        self._init_plot()
         # create df with zeros
         feature_list = ["bucket", "half_spread", "bid_px", "ask_px"]
         self.df = pd.DataFrame(0, index=np.arange(len(buckets)), columns=feature_list)
@@ -60,24 +66,8 @@ class PriceLadder:
         self.df["half_spread"] = (self.df["ask_px"] - self.df["bid_px"]) / 2.0
         pass
 
-    def set_position(self, pos: float):
-        self._calc_ladder(pos)
-        self._add_plot()
-        pass
-
-    def _calc_ladder(self, pos: float) -> None:
-        self.df["bid_px"], self.df["ask_px"] = zip(*self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
-        print(self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
-
-    def _add_plot(self):
-        print(self.df)
-
-        # plot the lines in the same plot so we can save it for animation
-        x = self.df["bucket"]
-        pix =  self.ax.plot(
-            x, self.df["ask_px"], 'r',
-            x, self.df["bid_px"], 'b',
-            linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
+    def _init_plot(self):
+        self.fig.tight_layout()
 
         # shift x-axis to middle. clean other axis
         self.ax.spines['bottom'].set_position('zero')
@@ -89,8 +79,26 @@ class PriceLadder:
         # plt.yticks([]), ax.set_ylabel('Price', loc='top')
         self.ax.yaxis.set_ticks([]), self.ax.set_ylabel('Mid', loc='center')
 
+    def set_position(self, pos: float):
+        self._calc_ladder(pos)
+        self._add_plot()
+        pass
+
+    def _calc_ladder(self, pos: float) -> None:
+        self.df["bid_px"], self.df["ask_px"] = zip(*self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
+        #print(self.df.apply(lambda x: PriceLadder.calc(x["bucket"], x["half_spread"], pos), axis=1))
+
+    def _add_plot(self):
+        #print(self.df)
+
+        # plot the lines in the same plot so we can save it for animation
+        x = self.df["bucket"]
+        pix = self.ax.plot(
+            x, self.df["ask_px"], 'r',
+            x, self.df["bid_px"], 'b',
+            linewidth=4, path_effects=[pe.Stroke(linewidth=5, foreground='k'), pe.Normal()])
+
         self.frames.append(pix)
-        self.fig.tight_layout()
 
 
 def main():
