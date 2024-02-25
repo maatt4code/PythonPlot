@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 import matplotlib.animation as animation
+import matplotlib.patches as patches
 
 
 class Side(Enum):
@@ -14,7 +15,7 @@ class Side(Enum):
 class Pricer:
     buckets = (1, 2, 3, 4, 5, 6, 7.75, 10, 13, 17, 21.5, 27)
     min_increment = 0.00001
-    min_half_spread = 3 * min_increment
+    min_half_spread = 2 * min_increment
     skew_factor = 1 * min_increment
 
     def __init__(self) -> None:
@@ -66,7 +67,7 @@ class PriceLadder:
         self.pricer = Pricer()
         self.fig, self.ax = plt.subplots()
         self.frames = []
-        self._init_plot()
+        self._init_plot(self.fig, self.ax)
         # create df with zeros
         feature_list = ["Bucket", "half_spread", "bid_px", "ask_px"]
         self.df = pd.DataFrame(0, index=np.arange(len(self.pricer.buckets)), columns=feature_list)
@@ -81,58 +82,78 @@ class PriceLadder:
         pass
 
     def plot_baseline(self):
+        plt.clf()
         # make plot with zero position
         self._calc_ladder(0)
+        fig, ax = plt.subplots()
+        self._init_plot(fig, ax)
+        # add ticks
+        xicks = self.df["Bucket"]
+        ax.xaxis.set_ticks(xicks, "")
         # add legends
-        x, y1, y2 = self.df["Bucket"].iloc[5], self.df["bid_px"].iloc[5], self.df["ask_px"].iloc[5]
+        bucket = 7
+        x, y1, y2 = self.df["Bucket"].iloc[bucket], self.df["bid_px"].iloc[bucket], self.df["ask_px"].iloc[bucket]
         print(y1)
         # head_width=0.05, head_length=0.03, linewidth=1,
         dy = y2-y1
-        self.ax.arrow(x=x, y=y1, dx=0, dy=dy, color='k', head_width=1.5 * dy, head_length=0.5 * dy, linewidth=4, length_includes_head=True)
-        # self.ax.annotate(text='Hello', xytext=(x + 1, 0))
-        pix = self._plot_impl()
+        ax.arrow(x=x, y=y1, dx=0, dy=dy,
+                 head_width=5 * dy, head_length=0.5 * dy,
+                 linewidth=8, length_includes_head=True,
+                 color='green')
+        #patch = patches.FancyArrowPatch((x, y1), (x, y2), arrowstyle='<|-|>', color='green', mutation_scale=1)
+        #ax.add_patch(patch)
+        ax.annotate(text='Spread', xy=(x, 0), xytext=(x + 1, y2 + 2 * dy), arrowprops=dict(facecolor='black', shrink=0.05))
+        bucket = 1
+        x, y1, y2 = self.df["Bucket"].iloc[bucket], self.df["bid_px"].iloc[bucket], self.df["ask_px"].iloc[bucket]
+        dy = y2-y1
+        ax.annotate(text='Retail', xy=(x, y2), xytext=(x - 2, y2 + 2 * dy), arrowprops=dict(facecolor='black', shrink=0.05))
+        pix = self._plot_impl(self.df, ax)
         # save
-        plt.show()
+        fig.savefig('statc.png', transparent=True)
+        plt.close()
 
-    def _init_plot(self):
+    @staticmethod
+    def _init_plot(fig, ax):
         # shift x-axis to middle. clean other axis
-        self.ax.spines['bottom'].set_position('zero')
-        self.ax.spines['right'].set_color('none')
-        self.ax.spines['top'].set_color('none')
+        ax.spines['bottom'].set_position('zero')
+        ax.spines['right'].set_color('none')
+        ax.spines['top'].set_color('none')
 
         # Remove ticks, add labels
-        self.ax.xaxis.set_ticks([]), self.ax.set_xlabel("Bucket", loc='right')
+        ax.xaxis.set_ticks([]), ax.set_xlabel("Bucket", loc='right')
         # plt.yticks([]), ax.set_ylabel('Price', loc='top')
-        self.ax.yaxis.set_ticks([]), self.ax.set_ylabel('Mid', loc='center')
+        ax.yaxis.set_ticks([]), ax.set_ylabel('Mid', loc='center')
 
         # set plot size etc
-        self.fig.tight_layout()
-        self.fig.set_size_inches(12.0, 8.5, forward=True)
-        self.fig.set_dpi(120)
+        fig.tight_layout()
+        fig.set_size_inches(12.0, 5.8, forward=True)
+        fig.set_dpi(120)
 
     def _calc_ladder(self, pos: float) -> None:
         self.df["bid_px"], self.df["ask_px"] = zip(*self.df.apply(lambda x: self.pricer.calc(x["Bucket"], x["half_spread"], pos), axis=1))
         # TODO - check ladder integrity
 
-    def _plot_impl(self):
+    @staticmethod
+    def _plot_impl(df, ax):
         # plot the lines in the same plot so we can save it for animation
         linewidth = 8
-        x = self.df["Bucket"]
-        pix = self.ax.plot(
-            x, self.df["ask_px"], 'r',
-            x, self.df["bid_px"], 'b',
+        x = df["Bucket"]
+        pix = ax.plot(
+            x, df["ask_px"], 'r',
+            x, df["bid_px"], 'b',
             linewidth=linewidth, path_effects=[pe.Stroke(linewidth=linewidth+2, foreground='k'), pe.Normal()])
         return pix
 
     def _add_plot(self):
-        pix = self._plot_impl()
+        # self._init_plot(self.fig, self.ax)
+        pix = self._plot_impl(self.df, self.ax)
         self.frames.append(pix)
 
 
 def main():
     print("Hello")
     ladder = PriceLadder()
-    ladder.plot_baseline()
+    # ladder.plot_baseline()
     for theta in range(0, 20, 1):
         theta /= 10.0
         theta *= np.pi
